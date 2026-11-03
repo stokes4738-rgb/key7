@@ -1,0 +1,58 @@
+name: Build Key7 iOS 15 DEB
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Extract complete Key7 project from uploaded ZIP
+        shell: bash
+        run: |
+          set -euo pipefail
+          unzip -oq Key7FIDO-BLE-NoMac.zip
+          test -f Key7FIDO-BLE/Key7.xcodeproj/project.pbxproj
+          test -f Key7FIDO-BLE/Tools/package_release.py
+
+      - name: Compile Key7 for iOS 15 (arm64)
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcodebuild \
+            -project Key7FIDO-BLE/Key7.xcodeproj \
+            -scheme Key7 \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath "$RUNNER_TEMP/Key7Derived" \
+            ARCHS=arm64 \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+
+      - name: Package installer
+        shell: bash
+        run: |
+          set -euo pipefail
+          APP="$RUNNER_TEMP/Key7Derived/Build/Products/Release-iphoneos/Key7.app"
+          test -f "$APP/Key7"
+          codesign --force --sign - --timestamp=none "$APP"
+          python3 Key7FIDO-BLE/Tools/package_release.py "$APP" dist
+
+      - name: Upload DEB and IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: Key7-installers
+          path: |
+            dist/*.deb
+            dist/*.ipa
+          if-no-files-found: error
